@@ -1,2 +1,2 @@
 # ode-implementation-F25
-This was a project implementing the SIR model for Math/CS 514: Numerical Analysis at UW-Madison the Fall 2025 semester
+This repo contains an implementation of the SIR Model. Included is the MATLAB code and the written report done as part of the project. This was a final project for Math/CS 514: Numerical Analysis at UW-Madison during the Fall 2025 semester.

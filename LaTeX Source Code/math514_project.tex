@@ -1,0 +1,170 @@
+\documentclass{article}
+\usepackage{amsmath, amsthm, amssymb} % Math Packages
+\usepackage{graphicx, alltt}
+\usepackage[
+    style=authoryear
+]{biblatex}
+
+\graphicspath{ {./figs/} }
+\addbibresource{references.bib}
+
+\title{Math 514 Final Project - SIR Model Implementation}
+\author{Tyson Franke}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction to the SIR Model}
+This paper explores a numerical implementation of the SIR model. Proposed by \textcite{kermackMcKendrick}, the SIR model is a simple model for the evolution of an epidemic. The total population is assumed to be homogenous, where it remains constant in size except for deaths due to the epidemic. In other words, it is assumed that the epidemic evolves fast enough such that slower changes to population can be ignored, including births and deaths by other causes (\cite{strogatz}).
+
+The model is divided into three classes: the number of susceptible people $S$, the number of infected people $I$, and the number of removed people $R$ (by recovery or death). It is additionally assumed that the entire population is initially equally susceptible to the disease, and that once an infected person is removed they have full immunity (\cite{kermackMcKendrick}). In other words, each person can only contract the disease once. 
+
+This gives rise to the following model with respect to time $t$:
+\begin{align*}
+    \frac{dS}{dt} &= -\beta \frac{S}{N} I \\
+    \frac{dI}{dt} &= \beta \frac{S}{N} I - \gamma I \\
+    \frac{dR}{dt} &= \gamma I\,,
+\end{align*}
+where $\beta$ and $\gamma$ are positive constants and the constant total population is $N = S + I + R$ (\cite{prodanov}). The constant $\beta$ represents the rate that the susceptible people become infected, which is assumed to be proportional to $S$ and $I$. The constant $\gamma$ represents the rate at which the infected are removed (\cite{strogatz}). As time increases initially, the number of infected $I$ starts to increase and the susceptible population begins to decrease at a faster rate. However, given the fixed population size and non-zero removal rate, this behavior begins to level and taper off. An example of this behavior can be seen in figure~\ref{fig:macal-example-sir}. The equations above represent the rate of change for each equation respectively.
+
+\begin{figure} [ht]
+    \centering 
+    \includegraphics[width=0.75\linewidth]{example-SIR-model.png}
+    \caption{An example SIR model (\cite{macal}).} \label{fig:macal-example-sir}
+\end{figure}
+
+\section{Numerical Implementation}
+
+While there are many methods to implement an ODE system, one consideration is the stiffness of the system. Although there is not one precise definition of a stiff system, one way to examine it is by comparing the eigenvalues of the Jacobian matrix. A stiff system will exhibit a large ratio of the largest eigenvalue to the smallest eigenvalue (\cite{suliMayers}). In the model above the Jacobian is given by
+\[ J = \begin{bmatrix}
+    -(\beta I)/N & -(\beta S)/N & 0 \\
+    (\beta I)/N  & (\beta S) / N - \gamma & 0 \\
+    0 & \gamma & 0
+\end{bmatrix}\,,\]
+where the eigenvalues are given by
+\[\lambda_{1,2} = \frac{-\left(\frac{\beta(I-S)}{N} + \gamma\right) \pm \sqrt{\left(\frac{\beta(I-S)}{N} + \gamma\right)^2 - \frac{4\beta I\gamma}{N}}}{2}, \qquad \lambda_3 = 0\,.\] 
+
+While the choice of $\gamma$ and $\beta$ can greatly influence the stability and stiffness of the system, it is generally well-behaved for most practical choices. An explicit value, the reproduction number, can be defined in more complex SIR models which influences the equilibrium and global asymptotic stabability of the model (\cite{elazzouzi}). The equations defined in the model change at relatively similar rates, so it is reasonable to suspect the system is not stiff. However, from a more practical standpoint, we can evaluate the ratio of eigenvalues when approximating the system to alleviate potential worries for stiffness.
+
+With this in mind, an explicit method will be used for computational ease. Again for simplicity, a one-step method will be used over a multi-step method. Then a good choice for an explicit one-step method is the the fourth-order Runge-Kutta method. This method is known to have fourth-order accuracy, and a proof can be shown by expanding by the Taylor Series in the truncation error (\cite{stack}). The method is consistent, and therefore converges for a small enough step size $h$. Moreover, we can write the method generally as 
+\[y_{n+1} = y_n + \frac{h}{6}\left( K_1 + 2 K_2 + 2 K_3 + K_4 \right)\,,\]
+which has the first character polynomial
+\[\rho(z) = z - 1\,.\] 
+This has a root of one, and is zero-stable by the root condition. Thus, by Dahlquist's equivalence theorem, the method converges (\cite{suliMayers}). Then we can simply evaluate whether the method is stiff upon approximating to be certain that this is a good method.
+
+Pseudocode for implementing this method for the SIR model is as follows:
+\begin{alltt}
+Input: \(\beta\), \(\gamma\), a, b
+    Set: N=1e6, S0 = N-1, I0 = 1;
+    Define derivatives: 
+        dS(t,y) = -\(\beta\) * y[1] * y[2] / N;
+        dI(t,y) = \(\beta\) * y[1] * y[2] / N - \(\gamma\) * y[2];
+        dR(t,y) = \(\gamma\) * y[2];
+    Define function:
+        f(t,y) = [dS(t,y), dI(t,y), dR(t,y)]^T
+
+    Set number of steps Nsteps = 5000
+    Initalize: t = 1x(Nsteps+1) matrix, y = 3x(Nsteps+1) matrix
+    - with t0 = a and y0 = [S0 I0 0]^T 
+    Step Size: h=(b-a)/Nsteps;
+
+%%% Runge-Kutta 4 Loop
+    For i = 1 to Nsteps:
+        k1 = f(t[i], y[:, i])
+        k2 = f(t[i] + 0.5*h, y[:, i] + 0.5*h*k_1)
+        k3 = f((t[i] + 0.5*h), (y[:, i] + 0.5*h*k_2))
+        k4 = f((t[i] + h), (y[:, i] + k_3*h))
+
+        y[:, i + 1] = y[:, i] + (1/6) * (k_1 + 2*k_2 + 2*k_3 + k_4)*h
+        t[i + 1] = t[i] + h
+    End
+
+    Plot(t, y)
+
+%%% Stiffness Evaluation
+
+    Initalize: eigg_diff = 1xlength(t) matrix
+    For k = 1 to length(t): 
+        Construct Jacobian J: 
+            J[1,1] = -(\(\beta\) * y[2, k]) / N 
+            J[1,2] = -(\(\beta\) * y[1, k]) / N 
+            J[1,3] = 0 
+            J[2,1] = (\(\beta\) * y[2, k]) / N 
+            J[2,2] = (\(\beta\) * y[1, k]) / N - \(\gamma\) 
+            J[2,3] = 0 
+            J[3,1] = 0 
+            J[3,2] = \(\gamma\) 
+            J[3,3] = 0 
+        Compute eigenvalues:  lambda = eig(J) 
+        Sort eigenvalues by real part 
+        eig_diff[k] = lambda[2] - lambda[1] 
+    End
+
+    Plot(t, eig_diff)
+\end{alltt}
+
+\section{Interpretation and Results}
+
+While a more explicit bound can be found (\cite{elazzouzi}), generally we need to choose $\gamma < \beta$ in order to see any change in equilibrium. Intuitively, then the infection rate would begin higher than the removal rate, which makes sense when modeling an epidemic. It would also make intuitive sense to initially let $S > I$ with $I=1$. This way the entire lifespan of the epidemic is captured. This would suggest that initially the disease spreads with one individual while the remainder of the population remains susceptible.
+
+The first set of plots in figure~\ref{fig:beta03-gamma01} the parameters $\beta = 0.3$ and $\gamma = 0.1$ are used. As we see with the plot measuring the difference between eigenvalues, stiffness is not a concern as the ratio is relatively small. We are assured that the method will converge, and the plot of the method looks promising. Interpreting the parameters, we expect about 30\% of susceptible people that come in contact with someone infected to become infected over time. Furthermore, we expect about 10\% of those infected to be removed over time, either by death or recovery.
+
+\begin{figure}[ht]
+    \centering
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_1.png}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_1-eig.png}
+    \end{minipage}
+    \caption{SIR trajectories (left) and eigenvalue magnitudes (right) for $\beta=0.3$, $\gamma=0.1$.} \label{fig:beta03-gamma01}
+\end{figure}
+
+The next set of plots in figure~\ref{fig:beta11-gamma01} the parameters $\beta = 1.1$ and $\gamma = 0.1$ are used. Although stiffness is still not a concern, the ratio is higher. Interpreting the parameters, we expect about 110\% of susceptible people that come in contact with someone infected to become infected over time, with same removal rate as before.
+What is also interesting is that the lifetime of the epidemic is notably shorter with a greater peak. Additionally, there are no susceptible people left in this case; the entire population has contracted the disease and either recovered or died.
+
+\begin{figure}[ht]
+    \centering
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta1_1-gamma0_1.png}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta1_1-gamma0_1-eig.png}
+    \end{minipage}
+    \caption{SIR trajectories (left) and eigenvalue magnitudes (right) for $\beta=1.1$, $\gamma=0.1$.} \label{fig:beta11-gamma01}
+\end{figure}
+
+In the third set of plots in figure~\ref{fig:beta03-gamma001} the parameters $\beta = 0.3$ and $\gamma = 0.01$ are used. In this case we left $\beta$ as is in figure~\ref{fig:beta03-gamma01}, but lowered $\gamma$. As may have been guessed by looking at the model equations, the function $S$ remains unchanged. However, we see that the epidemic last significantly longer. Intuitively, this follows as the infection rate is the same, but the removal rate is significantly slower. Thus, it takes more time to either fully recover or die from the disease.
+
+\begin{figure}[ht]
+    \centering
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_01.png}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_01-eig.png}
+    \end{minipage}
+    \caption{SIR trajectories (left) and eigenvalue magnitudes (right) for $\beta=0.3$, $\gamma=0.01$.}\label{fig:beta03-gamma001}
+\end{figure}
+
+In the last set of plots in figure~\ref{fig:beta03-gamma03} the parameters $\beta = 0.3$ and $\gamma = 0.3$ are used. This example is particularly interesting as we see no change in the initial state. Similarly, we see the same for $\gamma > \beta$. To put this in the context of the model, this means that an epidemic never occurred, as it died out before it had a chance to even grow.
+This would make sense given that the removal rate is greater than or equal to the infection rate. This is also a nice demonstration of the equilibriums discussed by \textcite{elazzouzi}. There is a certain threshold in the rates described by the reproduction number that dictates the initial growth and lifetime of a disease. If the disease is not infectious enough, or recovery and/or death from the disease is too quick, there will never be an epidemic in the first place. This follows the intuition of the model well.
+
+\begin{figure}[ht]
+    \centering
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_3.png}
+    \end{minipage}\hfill
+    \begin{minipage}{0.48\linewidth}
+        \includegraphics[width=\linewidth]{beta0_3-gamma0_3-eig.png}
+    \end{minipage}
+    \caption{SIR trajectories (left) and eigenvalue magnitudes (right) for $\beta=0.3$, $\gamma=0.3$.}\label{fig:beta03-gamma03}
+\end{figure}
+
+\section{Concluding Thoughts}
+The overall performance of the fourth-order Runge-Kutta method seems to have approximated the simple SIR model well. There are other factors and parameters that could be included in the SIR model, making it more thorough and complex. However, the implementation of a more simplistic version still provides useful insights on how an epidemic can evolve over time. While there is related theory and research that dives deeper into the technicalities, this implementation provides a practical intuition behind equilibriums and parameter thresholds of an epidemic. The SIR model has clear implications in epidemiology, and is important in understanding epidemic behaviors.
+
+\printbibliography
+
+\end{document}
